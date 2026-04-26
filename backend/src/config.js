@@ -32,7 +32,7 @@ module.exports = {
   PORT: port,
   CORS_ORIGIN: process.env.CORS_ORIGIN || "*",
   // PERBAIKAN DI SINI: Langsung ambil SQLITE_PATH jika ada
-  DB_PATH: process.env.SQLITE_PATH || path.join(DATA_DIR, "dashboard.sqlite"),
+  DB_PATH: process.env.SQLITE_PATH || path.join(__dirname, "../data/dashboard.sqlite"),
   GEOJSON_PATH: resolveFromRoot(process.env.GEOJSON_PATH, path.join(GEO_ROOT_PATH, "03-districts")),
   PROVINCE_GEOJSON_PATH: resolveFromRoot(
     process.env.PROVINCE_GEOJSON_PATH,
