@@ -7,6 +7,10 @@ const ROOT_DIR = path.resolve(__dirname, "..");
 
 function resolveFromRoot(value, fallback) {
   const target = value || fallback;
+  // Jika nilai mengandung 'sqlitecloud://', jangan gunakan path.join karena itu bukan alamat file lokal
+  if (typeof target === 'string' && target.startsWith('sqlitecloud://')) {
+    return target;
+  }
   return path.isAbsolute(target) ? target : path.join(ROOT_DIR, target);
 }
 
@@ -27,7 +31,8 @@ module.exports = {
   GEO_ROOT_PATH,
   PORT: port,
   CORS_ORIGIN: process.env.CORS_ORIGIN || "*",
-  DB_PATH: resolveFromRoot(process.env.SQLITE_PATH, path.join("data", "dashboard.sqlite")),
+  // PERBAIKAN DI SINI: Langsung ambil SQLITE_PATH jika ada
+  DB_PATH: process.env.SQLITE_PATH || path.join(DATA_DIR, "dashboard.sqlite"),
   GEOJSON_PATH: resolveFromRoot(process.env.GEOJSON_PATH, path.join(GEO_ROOT_PATH, "03-districts")),
   PROVINCE_GEOJSON_PATH: resolveFromRoot(
     process.env.PROVINCE_GEOJSON_PATH,
