@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const Database = require("better-sqlite3");
+const Database = require("@sqlitecloud/drivers");
 const { DB_PATH } = require("../src/config");
 const { getTransferFileFormat, importSqlDump, isImportableDatabaseFile } = require("../src/db-transfer");
 
