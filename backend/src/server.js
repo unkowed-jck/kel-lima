@@ -1,97 +1,44 @@
-const fs = require("fs");
-const path = require("path");
-const { DATA_DIR, DB_PATH, PORT } = require("./config");
-const { hasApplicationSchema, listExistingSqliteFiles, openDatabase, resolveRuntimeDbPath } = require("./db");
-const { isImportableDatabaseFile } = require("./db-transfer");
+const { PORT } = require("./config");
+const { openDatabase, hasApplicationSchema } = require("./db");
 const { ensureOwnerMetricsCompatibility, ensureRegionMetricsCompatibility } = require("./seed");
 const { createApp } = require("./app");
 
-const runtimeDbPath = resolveRuntimeDbPath();
-const runtimeDbExisted = fs.existsSync(runtimeDbPath);
-const db = openDatabase();
+async function startServer() {
+  try {
+    // 1. Inisialisasi Database Cloud
+    const db = openDatabase();
 
-function findLatestSqliteFile(filePaths) {
-  return filePaths
-    .map((filePath) => ({
-      filePath,
-      modifiedAt: fs.statSync(filePath).mtimeMs,
-    }))
-    .sort((left, right) => right.modifiedAt - left.modifiedAt)[0]?.filePath;
-}
+    // 2. Cek apakah schema sudah ada (Sekarang menggunakan async)
+    const hasSchema = await hasApplicationSchema(db);
 
-function listTransferFiles(directoryPath) {
-  if (!fs.existsSync(directoryPath)) {
-    return [];
-  }
+    if (!hasSchema) {
+      console.error("Schema database tidak ditemukan di SQLite Cloud.");
+      console.error("Pastikan Anda sudah mengunggah database dashboard.sqlite ke dashboard.sqlitecloud.io");
+      // Di Vercel, kita tidak bisa menjalankan npm run db:reset secara otomatis saat runtime
+      process.exit(1);
+    }
 
-  return fs
-    .readdirSync(directoryPath, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && isImportableDatabaseFile(entry.name))
-    .map((entry) => path.resolve(directoryPath, entry.name));
-}
+    // 3. Jalankan pemeliharaan schema (Wajib pakai await jika fungsi ini diubah ke async)
+    // Catatan: Anda mungkin perlu mengedit file seed.js juga agar mendukung async
+    await ensureRegionMetricsCompatibility(db);
+    await ensureOwnerMetricsCompatibility(db);
 
-const hasSchema = db
-  .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'regions'")
-  .get();
+    // 4. Buat index jika belum ada
+    await db.sql`CREATE INDEX IF NOT EXISTS idx_packages_owner_lookup ON packages(owner_type, owner_name);`;
 
-if (!hasSchema) {
-  const siblingDatabases = listExistingSqliteFiles(DATA_DIR).filter(
-    (filePath) => path.resolve(filePath) !== path.resolve(runtimeDbPath)
-  );
-  const usableSiblingDatabases = siblingDatabases.filter(hasApplicationSchema);
-  const exportDir = path.join(DATA_DIR, "exports");
-  const exportCandidates = listTransferFiles(exportDir);
-  const latestExport = findLatestSqliteFile(exportCandidates);
+    // 5. Jalankan Express App
+    const app = createApp(db);
+    
+    app.listen(PORT, () => {
+      console.log(`Backend aktif di port ${PORT}`);
+      console.log(`Terhubung ke SQLite Cloud`);
+    });
 
-  console.error(`Audit dashboard schema was not found at ${runtimeDbPath}.`);
-
-  if (!runtimeDbExisted && path.resolve(runtimeDbPath) === path.resolve(DB_PATH)) {
-    console.error(`Startup created an empty SQLite file at ${runtimeDbPath} because the configured DB was missing.`);
-  }
-
-  if (usableSiblingDatabases.length) {
-    console.error(`Found other SQLite files with the expected schema in ${DATA_DIR}:`);
-    usableSiblingDatabases.forEach((filePath) => console.error(`- ${filePath}`));
-    console.error(`Rename the desired file to ${path.basename(DB_PATH)} or set SQLITE_PATH to point to it.`);
-  }
-
-  if (latestExport) {
-    console.error(`Database dump files inside ${exportDir} are not loaded automatically.`);
-    console.error(`Import the latest export with: npm.cmd run db:import -- --in "${latestExport}"`);
-  }
-
-  console.error(`Run "npm.cmd run db:reset" inside backend/ if you want to rebuild the database from seed data.`);
-  db.close();
-  process.exit(1);
-}
-
-if (ensureRegionMetricsCompatibility(db)) {
-  console.log("Region metrics schema was outdated. Rebuilt owner-scoped aggregates.");
-}
-
-if (ensureOwnerMetricsCompatibility(db)) {
-  console.log("Owner metrics table was missing or outdated. Rebuilt national owner aggregates.");
-}
-
-db.exec("CREATE INDEX IF NOT EXISTS idx_packages_owner_lookup ON packages(owner_type, owner_name);");
-
-const app = createApp(db);
-const server = app.listen(PORT, () => {
-  console.log(`Dashboard backend listening on http://127.0.0.1:${PORT}`);
-  console.log(`SQLite database: ${runtimeDbPath}`);
-});
-
-function shutdown(signal) {
-  console.log(`${signal} received, shutting down...`);
-  server.close(() => {
-    db.close();
-    process.exit(0);
-  });
-
-  setTimeout(() => {
+  } catch (error) {
+    console.error("Gagal menjalankan server:", error);
     process.exit(1);
-  }, 5000).unref();
+  }
 }
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+// Jalankan fungsi start
+startServer();
