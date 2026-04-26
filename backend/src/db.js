@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const Database = require("better-sqlite3");
+const Database = require("@sqlitecloud/drivers");
 const { DATA_DIR, DB_PATH } = require("./config");
 
 const SQLITE_EXTENSIONS = new Set([".sqlite", ".sqlite3", ".db"]);
