@@ -1,83 +1,52 @@
-const fs = require("fs");
-const path = require("path");
-const Database = require("@sqlitecloud/drivers");
-const { DATA_DIR, DB_PATH } = require("./config");
+const { Database } = require("@sqlitecloud/drivers");
+const { DB_PATH } = require("./config");
 
-const SQLITE_EXTENSIONS = new Set([".sqlite", ".sqlite3", ".db"]);
-const REQUIRED_SCHEMA_TABLES = ["packages", "regions"];
+// PENTING: Di Vercel, kita langsung pakai URL dari Environment Variable
+// Pastikan SQLITE_PATH di Vercel berisi: sqlitecloud://xxxx...
+const connectionString = process.env.SQLITE_PATH || DB_PATH;
 
-function isSqliteFile(fileName) {
-  const extension = path.extname(fileName).toLowerCase();
-  return SQLITE_EXTENSIONS.has(extension);
-}
-
-function listExistingSqliteFiles(directoryPath) {
-  if (!fs.existsSync(directoryPath)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(directoryPath, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && isSqliteFile(entry.name))
-    .map((entry) => path.resolve(directoryPath, entry.name))
-    .sort((left, right) => left.localeCompare(right));
-}
-
-function hasApplicationSchema(filePath) {
-  let db;
-
-  try {
-    db = new Database(filePath, { readonly: true, fileMustExist: true });
-
-    return REQUIRED_SCHEMA_TABLES.every((tableName) =>
-      db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName)
-    );
-  } catch {
-    return false;
-  } finally {
-    if (db) {
-      db.close();
-    }
-  }
-}
-
-function resolveRuntimeDbPath() {
-  const configuredPath = path.resolve(DB_PATH);
-  const configuredFileName = path.basename(configuredPath).toLowerCase();
-  const existingDatabases = listExistingSqliteFiles(DATA_DIR);
-
-  if (!existingDatabases.length) {
-    return configuredPath;
-  }
-
-  const schemaDatabases = existingDatabases.filter(hasApplicationSchema);
-  const preferredDatabases = schemaDatabases.length ? schemaDatabases : existingDatabases;
-  const configuredMatch = preferredDatabases.find(
-    (filePath) => path.basename(filePath).toLowerCase() === configuredFileName
-  );
-
-  return configuredMatch || preferredDatabases[0];
-}
-
-function ensureDataDirectory() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
+/**
+ * Fungsi untuk membuka koneksi ke SQLite Cloud.
+ * Kita tidak perlu lagi mengecek fs.existsSync karena DB ada di cloud.
+ */
 function openDatabase() {
-  ensureDataDirectory();
-  const runtimeDbPath = resolveRuntimeDbPath();
+  if (!connectionString) {
+    throw new Error("SQLITE_PATH tidak terdefinisi di Environment Variables");
+  }
 
-  const db = new Database(runtimeDbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  // Inisialisasi koneksi ke SQLite Cloud
+  const db = new Database(connectionString);
+
+  // Catatan: SQLite Cloud menangani pragma secara otomatis di sisi server, 
+  // tapi kita tetap bisa menjalankannya jika diperlukan via query.
+  // Namun untuk driver ini, cukup inisialisasi seperti di atas.
 
   return db;
 }
 
+// Karena SQLite Cloud bersifat async, fungsi pengecekan schema harus diubah
+async function hasApplicationSchema(db) {
+  try {
+    const tables = ["packages", "regions"];
+    
+    // Kita cek satu per satu apakah tabel ada di cloud
+    for (const tableName of tables) {
+      const result = await db.sql`SELECT name FROM sqlite_master WHERE type='table' AND name=${tableName}`;
+      if (result.length === 0) return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("Gagal cek schema:", err);
+    return false;
+  }
+}
+
 module.exports = {
-  DB_PATH,
-  hasApplicationSchema,
-  listExistingSqliteFiles,
+  DB_PATH: connectionString,
   openDatabase,
-  resolveRuntimeDbPath,
+  hasApplicationSchema,
+  // Fungsi listExistingSqliteFiles & resolveRuntimeDbPath tidak lagi relevan di Cloud
+  // tapi kita biarkan kosong agar tidak merusak import di file lain jika ada
+  listExistingSqliteFiles: () => [],
+  resolveRuntimeDbPath: () => connectionString,
 };
