@@ -1588,8 +1588,8 @@ function materializeProvinceMetrics(db) {
   `);
 }
 
-function materializeOwnerMetrics(db) {
-  db.exec(`
+async function materializeOwnerMetrics(db) {
+  db.sql(`
     INSERT INTO owner_metrics (
       owner_type,
       owner_name,
@@ -1618,54 +1618,41 @@ function materializeOwnerMetrics(db) {
   `);
 }
 
-function listTableColumns(db, tableName) {
-  return new Set(
-    db
-      .prepare(`PRAGMA table_info(${tableName})`)
-      .all()
-      .map((row) => row.name)
-  );
+async function listTableColumns(db, tableName) {
+  // Gunakan await db.sql karena ini koneksi cloud
+  const results = await db.sql(`PRAGMA table_info(${tableName})`);
+  return new Set(results.map((row) => row.name));
 }
 
-function ensureRegionMetricsCompatibility(db) {
-  const hasRegionMetricsTable = Boolean(
-    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'region_metrics'").get()
-  );
-  const columnNames = hasRegionMetricsTable ? listTableColumns(db, "region_metrics") : new Set();
-  const needsRebuild =
-    !hasRegionMetricsTable || REQUIRED_REGION_METRICS_COLUMNS.some((columnName) => !columnNames.has(columnName));
+async function ensureRegionMetricsCompatibility(db) {
+  const results = await db.sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'region_metrics'`;
+  const hasRegionMetricsTable = results.length > 0;
 
-  if (!needsRebuild) {
-    return false;
-  }
+  const columnNames = hasRegionMetricsTable ? await listTableColumns(db, "region_metrics") : new Set();
+  const needsRebuild = !hasRegionMetricsTable || REQUIRED_REGION_METRICS_COLUMNS.some((columnName) => !columnNames.has(columnName));
 
-  db.transaction(() => {
-    db.exec("DROP TABLE IF EXISTS region_metrics;");
-    db.exec(REGION_METRICS_TABLE_SQL);
-    materializeRegionMetrics(db);
-  })();
+  if (!needsRebuild) return false;
 
+  console.log("Rebuilding region metrics...");
+  await db.sql`DROP TABLE IF EXISTS region_metrics;`;
+  await db.sql(REGION_METRICS_TABLE_SQL);
+  await materializeRegionMetrics(db);
   return true;
 }
 
-function ensureOwnerMetricsCompatibility(db) {
-  const hasOwnerMetricsTable = Boolean(
-    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'owner_metrics'").get()
-  );
-  const columnNames = hasOwnerMetricsTable ? listTableColumns(db, "owner_metrics") : new Set();
-  const needsRebuild =
-    !hasOwnerMetricsTable || REQUIRED_OWNER_METRICS_COLUMNS.some((columnName) => !columnNames.has(columnName));
+async function ensureOwnerMetricsCompatibility(db) {
+  const results = await db.sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'owner_metrics'`;
+  const hasOwnerMetricsTable = results.length > 0;
 
-  if (!needsRebuild) {
-    return false;
-  }
+  const columnNames = hasOwnerMetricsTable ? await listTableColumns(db, "owner_metrics") : new Set();
+  const needsRebuild = !hasOwnerMetricsTable || REQUIRED_OWNER_METRICS_COLUMNS.some((columnName) => !columnNames.has(columnName));
 
-  db.transaction(() => {
-    db.exec("DROP TABLE IF EXISTS owner_metrics;");
-    db.exec(OWNER_METRICS_TABLE_SQL);
-    materializeOwnerMetrics(db);
-  })();
+  if (!needsRebuild) return false;
 
+  console.log("Rebuilding owner metrics...");
+  await db.sql`DROP TABLE IF EXISTS owner_metrics;`;
+  await db.sql(OWNER_METRICS_TABLE_SQL);
+  await materializeOwnerMetrics(db);
   return true;
 }
 
