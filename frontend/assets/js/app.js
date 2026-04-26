@@ -1,5 +1,5 @@
 (() => {
-  const API_BASE_URL = (window.DASHBOARD_API_BASE_URL || "/api").replace(/\/$/, "");
+  const API_BASE_URL = (window.DASHBOARD_API_BASE_URL || "/api/data").replace(/\/$/, "");
 
   if (!window.maplibregl || !window.AuditMap) {
     console.error("MapLibre GL or AuditMap failed to load.");
