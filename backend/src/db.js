@@ -15,7 +15,7 @@ function openDatabase() {
   }
 
   // Inisialisasi koneksi ke SQLite Cloud
-  const db = new Database(connectionString);
+  const db = new Database("sqlitecloud://cl6slbwodk.g1.sqlite.cloud:8860/dashboard.sqlite?apikey=W2fkCa4Br1PEFhmvQI8VzsU61Sfn1BINsMU2QV5Dx74");
 
   // Catatan: SQLite Cloud menangani pragma secara otomatis di sisi server, 
   // tapi kita tetap bisa menjalankannya jika diperlukan via query.
