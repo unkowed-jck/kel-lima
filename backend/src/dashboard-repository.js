@@ -34,9 +34,20 @@ const OWNER_METRIC_DEFINITIONS = [
   },
 ];
 
-function getJsonAsset(db, key, fallback) {
-  const row = db.prepare("SELECT json FROM assets WHERE key = ?").get(key);
-  return row ? JSON.parse(row.json) : fallback;
+async function getJsonAsset(db, key, fallback) {
+  try {
+    // Gunakan db.sql dan await karena ini koneksi cloud
+    const rows = await db.sql`SELECT json FROM assets WHERE key = ${key}`;
+    
+    // SQLite Cloud mengembalikan array hasil, jadi kita ambil baris pertama [0]
+    if (rows && rows.length > 0 && rows[0].json) {
+      return JSON.parse(rows[0].json);
+    }
+    return fallback;
+  } catch (error) {
+    console.error(`Gagal mengambil asset ${key}:`, error);
+    return fallback;
+  }
 }
 
 function clampInteger(value, defaultValue, minimum, maximum) {
@@ -590,11 +601,16 @@ function queryOwnerPackagesPage(db, ownerType, ownerName, normalizedQuery) {
   };
 }
 
-function getBootstrapPayload(db) {
-  const summaryRow = getNationalSummary(db);
-  const regions = getRegionRows(db).map(mapRegionRow);
-  const provinces = getProvinceRows(db).map(mapProvinceRow);
-  const centralOwners = getOwnerRows(db, "central").map(mapOwnerRow);
+// 1. Tambahkan async pada fungsi utamanya
+async function getBootstrapPayload(db) {
+  const summaryRow = getNationalSummary(db) || {};
+  const regions = (getRegionRows(db) || []).map(mapRegionRow);
+  const provinces = (getProvinceRows(db) || []).map(mapProvinceRow);
+  const centralOwners = (getOwnerRows(db, "central") || []).map(mapOwnerRow);
+
+  // 2. Tambahkan await pada pemanggilan getJsonAsset
+  const geo = await getJsonAsset(db, "audit_geojson", { type: "FeatureCollection", features: [] });
+  const provinceGeo = await getJsonAsset(db, "audit_province_geojson", { type: "FeatureCollection", features: [] });
 
   return {
     summary: {
@@ -606,11 +622,11 @@ function getBootstrapPayload(db) {
       multiLocationPackages: summaryRow.multi_location_packages || 0,
     },
     legend: buildLegend(regions.map((region) => region.totalPotentialWaste)),
-    geo: getJsonAsset(db, "audit_geojson", { type: "FeatureCollection", features: [] }),
+    geo: geo, // Gunakan hasil await tadi
     regions,
     provinceView: {
       legend: buildLegend(provinces.map((province) => province.totalPotentialWaste)),
-      geo: getJsonAsset(db, "audit_province_geojson", { type: "FeatureCollection", features: [] }),
+      geo: provinceGeo, // Gunakan hasil await tadi
       provinces,
     },
     ownerLists: {
@@ -618,6 +634,7 @@ function getBootstrapPayload(db) {
     },
   };
 }
+
 
 function getRegionPackages(db, regionKey, requestQuery) {
   const regionRow = db
